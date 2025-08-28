@@ -285,13 +285,13 @@ case $action in
         deck_delete "$src" "$force"
         ;;
     --isdeck)
-        exit "$(deck_isdeck "$src")"
+        deck_isdeck "$src"
         ;;
     --isdirty)
-        exit "$(deck_isdirty "$src")"
+        deck_isdirty "$src"
         ;;
     --ismounted)
-        exit "$(deck_ismounted "$src")"
+        deck_ismounted "$src"
         ;;
     --list-layers)
         deck_isdeck "$src" || fatal "not a deck: $src"
