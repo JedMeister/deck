@@ -232,6 +232,11 @@ deck_version() {
     exit 0
 }
 
+# check that overlay module is loaded
+if ! grep -q overlay <(lsmod); then
+    fatal "overlay module not loaded - load module and rerun"
+fi
+
 opts=()
 args=()
 force=''
