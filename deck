@@ -10,8 +10,8 @@
 
 VERSION=2.0rc+
 
-fatal() { echo "fatal: $@" 1>&2; exit 1; }
-warning() { echo "warning: $@" 1>&2; }
+fatal() { echo "fatal: $*" 1>&2; exit 1; }
+warning() { echo "warning: $*" 1>&2; }
 
 usage() {
 cat<<EOF
@@ -53,8 +53,14 @@ real_path() {
 [[ -z "$DEBUG" ]] || set -x
 
 deck_mount() {
-    local parent=$(real_path "$1")
-    local mountpath=$(real_path "$2")
+    local parent=
+    local mountpath=
+    local deckdir=
+    local parent_deckdir=
+    local lowerdir=
+
+    parent=$(real_path "$1")
+    mountpath=$(real_path "$2")
     [[ -d "$parent" ]] || fatal 'parent does not exist'
     
     if [[ -d "$mountpath" ]]; then
@@ -62,14 +68,14 @@ deck_mount() {
             fatal "mountpath (${mountpath}) exists but not empty"
     fi
 
-    local deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
+    deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
     local workdir="$deckdir/work"
     local upperdir="$deckdir/upper"
     mkdir -p "$deckdir" "$workdir" "$upperdir"
 
     if deck_isdeck "$parent"; then
         echo "$parent" > "$deckdir/parent"
-        local parent_deckdir="$(dirname "$parent")/.deck/$(basename "$parent")"
+        parent_deckdir="$(dirname "$parent")/.deck/$(basename "$parent")"
         cp "$parent_deckdir/layers" "$deckdir/layers"
         sed -i "1i$parent_deckdir/upper" "$deckdir/layers"
         deck_ismounted "$parent" && deck_umount "$parent"
@@ -79,39 +85,51 @@ deck_mount() {
     fi
 
     mkdir -p "$mountpath"
-    local lowerdir="$(cat "$deckdir/layers" | tr '\n' ':' | sed 's/:$//')"
+    lowerdir="$(tr '\n' ':' <"$deckdir/layers" | sed 's/:$//')"
     local options="lowerdir=$lowerdir,upperdir=$upperdir,workdir=$workdir"
     mount -t overlay overlay -o "$options" "$mountpath"
 }
 
 deck_remount() {
-    local mountpath=$(real_path "$1")
+    local mountpath=
+    local deckdir=
+    local parent=
+
+    mountpath=$(real_path "$1")
     [[ -d "$mountpath" ]] || fatal 'mountpath does not exist'
     deck_ismounted "$mountpath" && fatal 'already mounted'
     deck_isdeck "$mountpath" || fatal 'not a deck'
-    local deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
-    local parent=$(cat "$deckdir/parent")
+    deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
+    parent=$(cat "$deckdir/parent")
     deck_mount "$parent" "$mountpath"
 }
 
 real_umount() {
-    local mountpath=$(real_path "$1")
+    local mountpath=
+    mountpath=$(real_path "$1")
     local force=$2
     [[ -d "$mountpath" ]] || fatal 'mountpath does not exist'
     if deck_ismounted "$mountpath"; then
         if [[ "$force" == "yes" ]]; then
-            fuser --kill "$mountpath" || warning "fuser --kill returned non-zero exit code."
-            umount --recursive --force --lazy "$mountpath" || fatal "Cannot unmount $mountpath"
+            fuser --kill "$mountpath" \
+                || warning "fuser --kill returned non-zero exit code."
+            umount --recursive --force --lazy "$mountpath" \
+                || fatal "Cannot unmount $mountpath"
         else
             processes=$(fuser --mount "$mountpath" 2>/dev/null) || true
             [[ -z "$processes" ]] || \
-                fatal "Running processes locking $mountpath, try again with -f|--force to kill"
+                fatal "Running processes locking $mountpath," \
+                      " try again with -f|--force to kill"
             if ! umount "$mountpath" >/dev/null 2>&1; then
-                submounts=$(mount | sed -n "s|.*\($mountpath/[a-zA-Z0-9 /]*\) type.*|\1|p")
-                [[ -n "$submounts" ]] || fatal "Unknown reason for failing 'umount $mountpath'."
+                submounts=$(mount | \
+                    sed -n "s|.*\($mountpath/[a-zA-Z0-9 /]*\) type.*|\1|p" \
+                )
+                [[ -n "$submounts" ]] \
+                    || fatal "Unknown reason for failing 'umount $mountpath'."
                 echo -e "info: Attempting to unmount busy paths:\n$submounts"
-                echo "$submounts" | while read submount; do
-                    umount "$submount" || fatal "unmounting busy path $submount failed"
+                echo "$submounts" | while read -r submount; do
+                    umount "$submount" \
+                        || fatal "unmounting busy path $submount failed"
                 done
                 umount "$mountpath" || fatal "Cannot unmount $mountpath"
             fi
@@ -120,20 +138,26 @@ real_umount() {
 }
 
 deck_umount() {
-    local mountpath=$(real_path "$1")
+    local mountpath=
+
+    mountpath=$(real_path "$1")
     local force=$2
     deck_ismounted "$mountpath" || fatal 'not mounted'
     real_umount "$mountpath" "$force"
 }
 
 deck_delete() {
-    local mountpath=$(real_path "$1" 2>/dev/null)
+    local mountpath=
+    local deckdir=
+
+    mountpath=$(real_path "$1" 2>/dev/null)
     local force=$2
-    local deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
+    deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
     [[ -d "$mountpath" ]] || fatal 'mountpath does not exist'
     if deck_isdeck "$mountpath"; then
-        find "$(dirname "$deckdir")" -name 'parent' -print | grep -q "^${mountpath}$" && \
-            fatal 'cannot delete a parent deck'
+        find "$(dirname "$deckdir")" -name 'parent' -print \
+            | grep -q "^${mountpath}$" \
+                    && fatal 'cannot delete a parent deck'
         if deck_ismounted "$mountpath"; then
             real_umount "$mountpath" "$force"
         fi
@@ -144,16 +168,22 @@ deck_delete() {
 }
 
 deck_isdirty() {
-    local mountpath=$(real_path "$1")
-    local deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
+    local mountpath=
+    local deckdir=
+
+    mountpath=$(real_path "$1")
+    deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
     [[ -n "$(find "$deckdir/upper" -maxdepth 0 -empty)" ]] && return 1
     return 0
 }
 
 deck_isdeck() {
+    local mountpath=
+    local deckdir=
+
     [[ -d "$1" ]] || return 1
-    local mountpath=$(real_path "$1")
-    local deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
+    mountpath=$(real_path "$1")
+    deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
     [[ -d "$mountpath" ]] || return 1
     [[ -d "$deckdir" ]] || return 1
     [[ -d "$deckdir/work" ]] || return 255
@@ -164,7 +194,8 @@ deck_isdeck() {
 }
 
 deck_ismounted() {
-    local mountpath=$(real_path "$1")
+    local mountpath=
+    mountpath=$(real_path "$1")
     [[ -d "$mountpath" ]] || fatal 'mountpath does not exist'
     mount | grep -q "^overlay on $mountpath type overlay" || return $?
 }
@@ -172,32 +203,39 @@ deck_ismounted() {
 deck_version() {
 
     unset version
-    if [[ -n $(readlink ${0}) ]]; then
-        bin_path="$(readlink ${0})"
+    if [[ -n $(readlink "$0") ]]; then
+        bin_path="$(readlink "$0")"
     else
         bin_path="${0}"
     fi
-    bin_dir="$(dirname ${bin_path})"
+    bin_dir="$(dirname "$bin_path")"
     pkg_bin=/usr/bin/deck
 
     if [[ -f ${bin_dir}/install.txt ]]; then
-        version="$(head -1 ${bin_dir}/install.txt)"
+        version="$(head -1 "$bin_dir/install.txt")"
     elif [[ -f ${bin_dir}/debian/changelog ]]; then
-        version="$(cd ${bin_dir} && dpkg-parsechangelog -ldebian/changelog -S Version)"
-    elif [[ -d ${bin_dir}/.git ]]; then
-        version="$(cd ${bin_dir} && autoversion HEAD)"
-    elif [[ ${bin_path} = ${pkg_bin} ]]; then
+        version="$(cd "$bin_dir" \
+            && dpkg-parsechangelog -ldebian/changelog -S Version \
+        )"
+    elif [[ -d "$bin_dir/.git" ]]; then
+        version="$(cd "$bin_dir" && autoversion HEAD)"
+    elif [[ "$bin_path" = "$pkg_bin" ]]; then
         pkg_version="$(dpkg-query --showformat='${Version}' --show deck)"
         no_pkg_string="dpkg-query: no packages found matching deck"
-        if [[ ${pkg_version} != ${no_pkg_string} ]]; then
-            version="${pkg_version}"
+        if [[ "$pkg_version" != "$no_pkg_string" ]]; then
+            version="$pkg_version"
         fi
     fi
-    [[ -z ${version} ]] && version="${VERSION}"
+    [[ -z $version ]] && version="$VERSION"
 
-    echo "${version}"
+    echo "$version"
     exit 0
 }
+
+# check that overlay module is loaded
+if ! grep -q overlay <(lsmod); then
+    fatal "overlay module not loaded - load module and rerun"
+fi
 
 opts=()
 args=()
@@ -247,13 +285,13 @@ case $action in
         deck_delete "$src" "$force"
         ;;
     --isdeck)
-        exit $(deck_isdeck "$src")
+        deck_isdeck "$src"
         ;;
     --isdirty)
-        exit $(deck_isdirty "$src")
+        deck_isdirty "$src"
         ;;
     --ismounted)
-        exit $(deck_ismounted "$src")
+        deck_ismounted "$src"
         ;;
     --list-layers)
         deck_isdeck "$src" || fatal "not a deck: $src"
