@@ -8,7 +8,7 @@
 # Free Software Foundation; either version 3 of the License, or (at your
 # option) any later version.
 
-VERSION=2.0rc+
+VERSION=2.1.0
 
 fatal() { echo "fatal: $*" 1>&2; exit 1; }
 warning() { echo "warning: $*" 1>&2; }
@@ -87,7 +87,7 @@ deck_mount() {
     mkdir -p "$mountpath"
     lowerdir="$(tr '\n' ':' <"$deckdir/layers" | sed 's/:$//')"
     local options="lowerdir=$lowerdir,upperdir=$upperdir,workdir=$workdir"
-    mount -t overlay overlay -o "$options" "$mountpath"
+    "${MOUNT[@]}" -o "$options" "$mountpath"
 }
 
 deck_remount() {
@@ -113,25 +113,25 @@ real_umount() {
         if [[ "$force" == "yes" ]]; then
             fuser --kill "$mountpath" \
                 || warning "fuser --kill returned non-zero exit code."
-            umount --recursive --force --lazy "$mountpath" \
+            "${UMOUNT_F[@]}" "$mountpath" \
                 || fatal "Cannot unmount $mountpath"
         else
             processes=$(fuser --mount "$mountpath" 2>/dev/null) || true
             [[ -z "$processes" ]] || \
                 fatal "Running processes locking $mountpath," \
                       " try again with -f|--force to kill"
-            if ! umount "$mountpath" >/dev/null 2>&1; then
+            if ! "${UMOUNT[@]}" "$mountpath" >/dev/null 2>&1; then
                 submounts=$(mount | \
                     sed -n "s|.*\($mountpath/[a-zA-Z0-9 /]*\) type.*|\1|p" \
                 )
                 [[ -n "$submounts" ]] \
-                    || fatal "Unknown reason for failing 'umount $mountpath'."
+                    || fatal "Unknown reason for failing '${UMOUNT[*]} $mountpath'."
                 echo -e "info: Attempting to unmount busy paths:\n$submounts"
                 echo "$submounts" | while read -r submount; do
-                    umount "$submount" \
+                    "${UMOUNT[@]}" "$submount" \
                         || fatal "unmounting busy path $submount failed"
                 done
-                umount "$mountpath" || fatal "Cannot unmount $mountpath"
+                "${UMOUNT[@]}" "$mountpath" || fatal "Cannot unmount $mountpath"
             fi
         fi
     fi
@@ -159,7 +159,7 @@ deck_delete() {
             | grep -q "^${mountpath}$" \
                     && fatal 'cannot delete a parent deck'
         if deck_ismounted "$mountpath"; then
-            real_umount "$mountpath" "$force"
+            deck_umount "$mountpath" "$force"
         fi
         rm -rf "$deckdir"
     fi
@@ -197,7 +197,12 @@ deck_ismounted() {
     local mountpath=
     mountpath=$(real_path "$1")
     [[ -d "$mountpath" ]] || fatal 'mountpath does not exist'
-    mount | grep -q "^overlay on $mountpath type overlay" || return $?
+    if [[ $(id -u) -eq 0 ]]; then
+        grep_str="^overlay on $mountpath type overlay"
+    else
+        grep_str="^fuse-overlayfs on $mountpath type fuse.fuse-overlayfs"
+    fi
+    mount | grep -q "$grep_str" || return $?
 }
 
 deck_version() {
@@ -237,6 +242,24 @@ if ! grep -q overlay <(lsmod); then
     fatal "overlay module not loaded - load module and rerun"
 fi
 
+# use fuse if not root (mount/umount require root)
+if [[ $(id -u) -eq 0 ]]; then
+    MOUNT=(mount -t overlay overlay)
+    UMOUNT=(umount)
+    UMOUNT_F=(umount --recursive --force --lazy)
+else
+    if ! which fuse-overlayfs >/dev/null; then
+        fatal "fuse-overlayfs is required for unpriviledged use"
+    fi
+    MOUNT=(fuse-overlayfs)
+    UMOUNT=(fusermount -u)
+    # 'fusermount -z' == 'umount --lazy'; but fusermount does not have
+    # '--recursive' & '--force' so unpriviledged 'deck --force' is not quite
+    # the same
+    UMOUNT_F=(fusermount -u -z)
+    warning "unprivileged use is experimental - if problems, rerun with sudo"
+fi
+
 opts=()
 args=()
 force=''
@@ -264,7 +287,6 @@ case $action in
         [[ ${#args[@]} -eq 1 ]] || fatal 'missing argument';;
 esac
 
-[ "$(id -u)" != "0" ] && fatal 'must be run as root'
 lsmod | grep -q overlay || fatal 'overlay module not loaded'
 
 src="${args[0]}"
