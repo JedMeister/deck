@@ -302,7 +302,9 @@ fi
 action=${opts[0]}
 
 case $action in
-    -u|--umount|-D|--delete|--isdeck|--ismounted|--show-layers)
+    -u|--umount|-D|--delete)
+        [[ ${#args[@]} -ge 1 ]] || fatal 'missing argument';;
+    --isdeck|--ismounted|--show-layers)
         [[ ${#args[@]} -eq 1 ]] || fatal 'missing argument';;
 esac
 
