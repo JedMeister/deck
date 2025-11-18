@@ -147,7 +147,7 @@ deck_umount() {
 
     mountpath=$(real_path "$1")
     local force=$2
-    deck_ismounted "$mountpath" || fatal 'not mounted'
+    deck_ismounted "$mountpath" || fatal "not mounted: $mountpath"
     real_umount "$mountpath" "$force"
 }
 
@@ -158,7 +158,7 @@ deck_delete() {
     mountpath=$(real_path "$1" 2>/dev/null)
     local force=$2
     deckdir="$(dirname "$mountpath")/.deck/$(basename "$mountpath")"
-    [[ -d "$mountpath" ]] || fatal 'mountpath does not exist'
+    [[ -d "$mountpath" ]] || fatal "mountpath does not exist: $mountpath"
     if deck_isdeck "$mountpath"; then
         find "$(dirname "$deckdir")" -name 'parent' -print \
             | grep -q "^${mountpath}$" \
