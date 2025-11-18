@@ -17,6 +17,7 @@ usage() {
 cat<<EOF
 Deck a filesystem using overlayfs
 Syntax: $(basename "$0") path/to/dir/or/deck path/to/new/deck
+Syntax: $(basename "$0") [ -D | -u ] path/to/existing/deck [path/to/other/deck ...]
 Syntax: $(basename "$0") [ -option ] path/to/existing/deck
 
 Options:
@@ -263,6 +264,8 @@ fi
 opts=()
 args=()
 force=''
+umount=
+delete=
 while [[ -n "$1" ]]; do
     case "$1" in
         -h|--help)  usage;;
@@ -270,6 +273,14 @@ while [[ -n "$1" ]]; do
                     deck_version;;
         -f|--force)
                     force=yes;;
+        -u|--umount)
+                    umount=yes
+                    opts=("${opts[@]}" "$1")
+                    ;;
+        -D|--delete)
+                    delete=yes
+                    opts=("${opts[@]}" "$1")
+                    ;;
         -*)         opts=("${opts[@]}" "$1");;
         *)          args=("${args[@]}" "$1");;
     esac
@@ -277,9 +288,13 @@ while [[ -n "$1" ]]; do
 done
 
 [[ ${#args[@]} -eq 0 ]] && usage
-[[ ${#args[@]} -gt 2 ]] && fatal 'too many arguments'
 [[ ${#opts[@]} -gt 1 ]] && fatal 'conflicting deck options'
 [[ ${#opts[@]} -eq 0 ]] && opts=('--mount')
+if [[ ${#args[@]} -gt 2 ]]; then
+    if [[ -z "$umount" ]] && [[ -z "$delete" ]]; then
+        fatal 'too many arguments'
+    fi
+fi
 action=${opts[0]}
 
 case $action in
@@ -301,10 +316,14 @@ case $action in
         fi
         ;;
     -u|--umount)
-        deck_umount "$src" "$force"
+        for arg in "${args[@]}"; do
+            deck_umount "$arg" "$force"
+        done
         ;;
     -D|--delete)
-        deck_delete "$src" "$force"
+        for arg in "${args[@]}"; do
+            deck_delete "$arg" "$force"
+        done
         ;;
     --isdeck)
         deck_isdeck "$src"
