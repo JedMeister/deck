@@ -8,6 +8,10 @@
 # Free Software Foundation; either version 3 of the License, or (at your
 # option) any later version.
 
+if [[ -n "$DECK_DEBUG" ]] || [[ -n "$DEBUG" ]]; then
+    set -x
+fi
+
 VERSION=2.1.0
 
 fatal() { echo "fatal: $*" 1>&2; exit 1; }
